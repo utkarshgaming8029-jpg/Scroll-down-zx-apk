@@ -1,0 +1,97 @@
+name: Build Nexora Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a GitHub Release with APK attached?'
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: false
+        type: string
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+
+      - name: Accept Android SDK Licenses & Install Components
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Make Gradlew Executable
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        env:
+          CI: true
+        run: |
+          echo "Starting Nexora Debug APK build..."
+          ./gradlew --no-daemon assembleDebug --stacktrace
+          if [ ! -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            echo "::error::APK file app/build/outputs/apk/debug/app-debug.apk was not generated!"
+            exit 1
+          fi
+          echo "Build successful! APK size: $(ls -lh app/build/outputs/apk/debug/app-debug.apk | awk '{print $5}')"
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexora-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release == true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: "Nexora Social - Release ${{ inputs.release_tag }}"
+          body: |
+            ## 🚀 Nexora – Connect Beyond Limits
+            
+            Welcome to the official build of **Nexora**, the premium Android social media application.
+            
+            ### ✨ Included in this release:
+            - Full interactive native Android UI with Dark Mode & Purple/Blue gradients
+            - Home Feed, Stories viewer, Reels, Explore & Search, Create Post
+            - User profiles, Direct messaging, Notifications, Settings & Privacy
+            - Demo Mode enabled by default for instant testability
+            - Ready for Firebase Auth & Firestore integration
+            
+            ### 📥 Installation:
+            1. Download `app-debug.apk` below directly to your Android device.
+            2. Tap the downloaded APK and allow "Install from Unknown Sources" if prompted.
+            3. Launch Nexora and explore all features!
+          files: app/build/outputs/apk/debug/app-debug.apk
